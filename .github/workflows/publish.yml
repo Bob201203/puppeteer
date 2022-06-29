@@ -6,7 +6,8 @@ on:
       - v*
 
 jobs:
-  publish:
+  npm-publish:
+    name: Publish to NPM
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -14,7 +15,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
       - name: Install dependencies
-        run: npm install
+        run: npm ci
       - name: Build puppeteer
         run: npm run build
       - name: Publish puppeteer
@@ -37,7 +38,8 @@ jobs:
           npm config set '//wombat-dressing-room.appspot.com/:_authToken' '${NPM_TOKEN}'
           npm publish
 
-  post-publish:
+  deploy-docs:
+    name: Deploy documentation
     needs: publish
     runs-on: ubuntu-latest
     permissions:
@@ -48,23 +50,17 @@ jobs:
         uses: actions/checkout@v3
         with:
           ref: main
-      - name: Install dependencies
-        run: npm install
-      - name: Build main docs
-        run: npm run doc
-      - name: Commit
+      - name: Generate docs
+        run: npm run docs
+      - name: Version docs
+        working-directory: ./website
+        run: |
+          npm install
+          npm run docusaurus docs:version ${GITHUB_REF#refs/*/v}
+      - name: Commit to main
         run: |
           git config --global user.email "55107282+release-please[bot]@users.noreply.github.com"
           git config --global user.name "release-please[bot]"
-          git commit -am "chore: unfreeze version on docs"
-      - name: Create PR
-        uses: peter-evans/create-pull-request@v4
-        with:
-          token: ${{secrets.PR_PAT}}
-          committer: 'release-please[bot] <55107282+release-please[bot]@users.noreply.github.com>'
-          author: 'release-please[bot] <55107282+release-please[bot]@users.noreply.github.com>'
-          title: 'chore: unfreeze version on docs'
-          body: ''
-          labels: automated pr
-          branch: create-pull-request/unfreeze
-          delete-branch: true
+          git add .
+          git commit -m "chore: generate v${GITHUB_REF#refs/*/v} docs"
+          git push

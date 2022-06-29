@@ -16,8 +16,100 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  check-docs:
+    name: Check documentation
+    runs-on: ubuntu-latest
+    outputs:
+      needs_deploying: ${{ steps.needs_deploying.outputs.value }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Set up Node.js
+        uses: actions/setup-node@v3.3.0
+        with:
+          cache: npm
+      - name: Create browser cache
+        uses: actions/cache@v3
+        with:
+          path: |
+            .local-chromium
+            .local-firefox
+          key: ${{ runner.os }}-browsers-${{ hashFiles('src/revisions.ts') }}
+      - name: Install dependencies
+        run: npm ci
+      - name: Build
+        run: npm run docs
+      - name: Diff docs
+        run: $(git diff) || exit 1
+      - name: Check if docs need to be deployed
+        id: needs_deploying
+        run: |
+          if [[ $(git diff @~ -- ./docs ./website) ]]; then
+            needs_deploying=true
+          else
+            needs_deploying=false
+          fi
+          echo "::set-output name=value::$needs_deploying"
+
+  deploy-docs:
+    needs: check-docs
+    name: Deploy docs (if needed)
+    if: ${{ needs.check-docs.outputs.needs_deploying == 'true' && github.event_name != 'pull_request' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 2
+      - name: Set up Node.js
+        uses: actions/setup-node@v3.3.0
+        with:
+          cache: npm
+      - name: Install dependencies
+        working-directory: ./website
+        run: npm ci
+      - name: Deploy website (if needed)
+        working-directory: ./website
+        run: npm run build
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./website/build
+          user_name: release-please[bot]
+          user_email: 55107282+release-please[bot]@users.noreply.github.com
+
+  check-code:
+    name: Check code
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 2
+      - name: Set up Node.js
+        uses: actions/setup-node@v3.3.0
+        with:
+          cache: npm
+      - name: Create browser cache
+        uses: actions/cache@v3
+        with:
+          path: |
+            .local-chromium
+            .local-firefox
+          key: ${{ runner.os }}-browsers-${{ hashFiles('src/revisions.ts') }}
+      - name: Install dependencies
+        run: npm ci
+      - name: Lint and check code
+        run: |
+          npm run lint
+          npm run check
+      - name: Lint commits (only for push to main)
+        if: github.event_name != 'pull_request'
+        run: npm run commitlint
+
   linux:
-    # https://github.com/actions/virtual-environments#available-environments
+    name: Linux runtime tests
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -27,228 +119,68 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v3
-        with:
-          fetch-depth: 2
-
       - name: Set up Node.js
         uses: actions/setup-node@v3.3.0
         with:
           node-version: ${{ matrix.node }}
-
-      - name: Install dependencies
-        run: |
-          sudo apt-get install xvfb
-          # Ensure both a Chromium and a Firefox binary are available.
-          PUPPETEER_PRODUCT=firefox npm install
-          npm install
-          ls .local-chromium .local-firefox
-
+          cache: npm
+      - name: Create browser cache
+        uses: actions/cache@v3
+        with:
+          path: |
+            .local-chromium
+            .local-firefox
+          key: ${{ runner.os }}-browsers-${{ hashFiles('src/revisions.ts') }}
+      - name: Install with Chrome
+        run: npm ci
+      - name: Install with Firefox
+        env:
+          PUPPETEER_PRODUCT: 'firefox'
+        run: npm ci
+      - name: Install testing dependencies
+        run: sudo apt-get install xvfb
       - name: Build
-        run: |
-          npm run build
+        run: npm run build
+      - name: Run tests
+        run: xvfb-run --auto-servernum npm test
+      - name: Run headless test
+        run: xvfb-run --auto-servernum npm run test:chrome:headless
+      - name: Run headful test
+        run: xvfb-run --auto-servernum npm run test:chrome:headful
 
-      - name: Run code checks
-        run: |
-          npm run test:pinned-deps
-          npm run lint
-          # Skipping as it's flakey and we are not currently using the new documentation site in the wild yet.
-          # See https://github.com/puppeteer/puppeteer/issues/7710 for more info
-          # npm run generate:docs
-          npm run test:protocol-revision
-          npm run test:types
-
-      - name: Run commit lint
-        run: |
-          npm run commitlint
-        if: github.event_name != 'pull_request'
-
-      - name: Run unit tests with coverage
-        uses: nick-invision/retry@v2
-        env:
-          CHROMIUM: true
-        with:
-          max_attempts: 3
-          command: xvfb-run --auto-servernum npm run test:unit:coverage
-          timeout_minutes: 10
-
-      - name: Run unit tests on Firefox
-        uses: nick-invision/retry@v2
-        env:
-          FIREFOX: true
-          MOZ_WEBRENDER: 0
-        with:
-          max_attempts: 3
-          timeout_minutes: 10
-          command: xvfb-run --auto-servernum npm run test:unit:firefox
-
-      - name: Test bundling and installation
-        env:
-          CHROMIUM: true
-        run: |
-          # Note: this modifies package.json to test puppeteer-core.
-          npm run test:install
-          # Undo those changes.
-          git checkout --force
-
-  macos:
-    # https://github.com/actions/virtual-environments#available-environments
-    runs-on: macos-latest
+  other-oses:
+    name: ${{ matrix.os.name }} runtime tests
+    runs-on: ${{ matrix.os.release }}
+    strategy:
+      matrix:
+        os:
+          - name: 'macOS'
+            release: 'macos-latest'
+          - name: 'Windows'
+            release: 'windows-latest'
     steps:
       - name: Checkout
         uses: actions/checkout@v3
-        with:
-          fetch-depth: 2
-
       - name: Set up Node.js
         uses: actions/setup-node@v3.3.0
         with:
           # Test only the oldest maintenance LTS Node.js version.
           # https://github.com/nodejs/Release#release-schedule
           node-version: 14
-
-      - name: Install dependencies
-        run: |
-          # Test platform-specific browser binary fetching for both
-          # Chromium and Firefox.
-          PUPPETEER_PRODUCT=firefox npm install
-          npm install
-          ls .local-chromium .local-firefox
-
+      - name: Create browser cache
+        uses: actions/cache@v3
+        with:
+          path: |
+            .local-chromium
+            .local-firefox
+          key: ${{ runner.os }}-browsers-${{ hashFiles('src/revisions.ts') }}
+      - name: Install with Chrome
+        run: npm ci
+      - name: Install with Firefox
+        env:
+          PUPPETEER_PRODUCT: 'firefox'
+        run: npm ci
       - name: Build
-        run: |
-          npm run build
-
-      - name: Run unit tests
-        env:
-          CHROMIUM: true
-        run: |
-          npm run test:unit
-
-      - name: Run unit tests on Firefox
-        uses: nick-invision/retry@v2
-        with:
-          max_attempts: 3
-          timeout_minutes: 10
-          command: npm run test:unit:firefox
-
-  windows:
-    # https://github.com/actions/virtual-environments#available-environments
-    runs-on: windows-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 2
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v3.3.0
-        with:
-          # Test only the oldest maintenance LTS Node.js version.
-          # https://github.com/nodejs/Release#release-schedule
-          node-version: 14
-
-      - name: Install dependencies
-        run: |
-          # Test platform-specific browser binary fetching for both
-          # Chromium and Firefox.
-          $env:PUPPETEER_PRODUCT='firefox'
-          npm install
-          Remove-Item Env:\PUPPETEER_PRODUCT
-          npm install
-          Get-ChildItem -Path .local-chromium,.local-firefox
-
-      - name: Build
-        run: |
-          npm run build
-
-      - name: Run unit tests
-        env:
-          CHROMIUM: true
-        run: |
-          npm run test:unit
-
-      - name: Run unit tests on Firefox
-        uses: nick-invision/retry@v2
-        continue-on-error: true
-        env:
-          FIREFOX: true
-          MOZ_WEBRENDER: 0
-        with:
-          max_attempts: 3
-          timeout_minutes: 10
-          command: npm run test:unit:firefox
-
-  linux-headful:
-    # https://github.com/actions/virtual-environments#available-environments
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        # Include a current Node.js version.
-        # https://github.com/nodejs/Release#release-schedule
-        node: [18]
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 2
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v3.3.0
-        with:
-          node-version: ${{ matrix.node }}
-      - name: Install dependencies
-        run: |
-          sudo apt-get install xvfb
-          # Ensure both a Chromium and a Firefox binary are available.
-          PUPPETEER_PRODUCT=firefox npm install
-          npm install
-          ls .local-chromium .local-firefox
-
-      - name: Build
-        run: |
-          npm run build
-      - name: Run unit tests in headful mode
-        uses: nick-invision/retry@v2
-        env:
-          CHROMIUM: true
-          HEADLESS: false
-        with:
-          max_attempts: 1
-          command: xvfb-run --auto-servernum npm run test:unit
-          timeout_minutes: 10
-
-  linux-chrome-headless:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        # https://github.com/actions/virtual-environments#available-environments
-        os: [ubuntu-latest]
-        # https://github.com/nodejs/Release#release-schedule
-        node: [18]
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 2
-      - name: Set up Node.js
-        uses: actions/setup-node@v3.3.0
-        with:
-          node-version: ${{ matrix.node }}
-      - name: Install dependencies
-        run: |
-          sudo apt-get install xvfb
-          # Ensure both a Chromium and a Firefox binary are available.
-          PUPPETEER_PRODUCT=firefox npm install
-          npm install
-          ls .local-chromium .local-firefox
-      - name: Build
-        run: |
-          npm run build
-      - name: Run unit tests
-        uses: nick-invision/retry@v2
-        env:
-          CHROMIUM: true
-        with:
-          max_attempts: 1
-          command: xvfb-run --auto-servernum npm run test:unit:chrome-headless
-          timeout_minutes: 10
+        run: npm run build
+      - name: Run tests
+        run: npm test

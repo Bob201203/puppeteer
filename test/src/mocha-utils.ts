@@ -293,6 +293,7 @@ export const setupTestPageAndContextHooks = (): void => {
   });
 
   afterEach(async () => {
+    await state.page!.close();
     await state.context!.close();
     state.context = undefined;
     state.page = undefined;
@@ -374,4 +375,15 @@ export const shortWaitForArrayToHaveAtLeastNElements = async (
       return setTimeout(resolve, timeout);
     });
   }
+};
+
+export const itFlaky = (title: string, callback: () => Promise<void>): void => {
+  it(title, function (done) {
+    callback
+      .apply(this)
+      .then(done)
+      .finally(() => {
+        this.skip();
+      });
+  });
 };

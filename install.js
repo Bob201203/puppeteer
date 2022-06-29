@@ -23,11 +23,17 @@
  * still possible to install a supported browser using this script when
  * necessary.
  */
-
-const compileTypeScriptIfRequired = require('./typescript-if-required.js');
-
 async function download() {
-  await compileTypeScriptIfRequired();
+  // This only happens if cloned directly from source.
+  if (
+    !(await import('fs')).existsSync(
+      (await import('path')).join(__dirname, 'lib')
+    )
+  ) {
+    console.log('Compiling TS...');
+    (await import('child_process')).execSync('npm run build');
+  }
+
   // need to ensure TS is compiled before loading the installer
   const {
     downloadBrowser,

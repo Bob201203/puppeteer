@@ -42,14 +42,14 @@ Despite being named 'unit', these are integration tests, making sure public API 
 - To run all tests:
 
 ```bash
-npm run test:unit
+npm run build && npm run test
 ```
 
-- **Important**: don't forget to first run TypeScript if you're testing local changes:
+:::tip
 
-```bash
-npm run build:tsc && npm run test:unit
-```
+Always remember to compile your code before running your test if you make any local changes!
+
+:::
 
 - To run a specific test, substitute the `it` with `it.only`:
 

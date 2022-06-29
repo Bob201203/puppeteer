@@ -36,20 +36,19 @@ jobs:
         run: |
           sudo apt-get install xvfb
           # Ensure both a Chromium and a Firefox binary are available.
-          PUPPETEER_PRODUCT=firefox npm install
-          npm install
+          PUPPETEER_PRODUCT=firefox npm ci
+          npm ci
           ls .local-chromium .local-firefox
           REV=$(node utils/check_availability.js -p linux)
           echo "Installing revision $REV"
           cat src/revisions.ts | sed "s/[0-9]\{6,\}/$REV/" > src/revisions.ts.replaced
           mv src/revisions.ts.replaced src/revisions.ts
           npm run build
-          npm install
+          npm ci
 
       - name: Run unit tests in headless
         uses: nick-invision/retry@v2
         env:
-          CHROMIUM: true
           HEADLESS: true
         with:
           command: xvfb-run --auto-servernum npm run test:unit
@@ -77,20 +76,19 @@ jobs:
         run: |
           sudo apt-get install xvfb
           # Ensure both a Chromium and a Firefox binary are available.
-          PUPPETEER_PRODUCT=firefox npm install
-          npm install
+          PUPPETEER_PRODUCT=firefox npm ci
+          npm ci
           ls .local-chromium .local-firefox
           REV=$(node utils/check_availability.js -p linux)
           echo "Installing revision $REV"
           cat src/revisions.ts | sed "s/[0-9]\{6,\}/$REV/" > src/revisions.ts.replaced
           mv src/revisions.ts.replaced src/revisions.ts
           npm run build
-          npm install
+          npm ci
 
       - name: Run unit tests in headful
         uses: nick-invision/retry@v2
         env:
-          CHROMIUM: true
           HEADLESS: false
         with:
           command: xvfb-run --auto-servernum npm run test:unit
@@ -118,20 +116,18 @@ jobs:
         run: |
           sudo apt-get install xvfb
           # Ensure both a Chromium and a Firefox binary are available.
-          PUPPETEER_PRODUCT=firefox npm install
-          npm install
+          PUPPETEER_PRODUCT=firefox npm ci
+          npm ci
           ls .local-chromium .local-firefox
           REV=$(node utils/check_availability.js -p linux)
           echo "Installing revision $REV"
           cat src/revisions.ts | sed "s/[0-9]\{6,\}/$REV/" > src/revisions.ts.replaced
           mv src/revisions.ts.replaced src/revisions.ts
           npm run build
-          npm install
+          npm ci
 
       - name: Run unit tests in chrome headless
         uses: nick-invision/retry@v2
-        env:
-          CHROMIUM: true
         with:
           command: xvfb-run --auto-servernum npm run test:unit:chrome-headless
           timeout_minutes: 10
